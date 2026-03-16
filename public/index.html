@@ -1,0 +1,1471 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CLAUDE MONITOR // REAL-TIME DASHBOARD</title>
+<style>
+/* ─── Reset & Base ──────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #0a0e17;
+  --bg-panel: #0d1220;
+  --bg-panel-alt: #111827;
+  --border: #1e3a5f;
+  --border-glow: #00d4ff;
+  --text: #c8d6e5;
+  --text-dim: #5a6d82;
+  --text-bright: #e8f4ff;
+  --accent: #00d4ff;
+  --accent2: #7b61ff;
+  --accent3: #00ff88;
+  --warning: #ffaa00;
+  --error: #ff4466;
+  --success: #00ff88;
+  --tool-read: #00d4ff;
+  --tool-write: #ff6b9d;
+  --tool-edit: #ffaa00;
+  --tool-bash: #00ff88;
+  --tool-grep: #7b61ff;
+  --tool-glob: #a78bfa;
+  --tool-agent: #f97316;
+  --tool-skill: #ec4899;
+  --tool-other: #64748b;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  --font-sans: 'Inter', -apple-system, sans-serif;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: local('JetBrains Mono');
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow: hidden;
+  height: 100vh;
+}
+
+/* ─── Layout ────────────────────────────────────────────────── */
+.app {
+  display: grid;
+  grid-template-rows: 48px 1fr;
+  height: 100vh;
+  gap: 0;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  background: linear-gradient(180deg, #0f1a2e 0%, #0a0e17 100%);
+  border-bottom: 1px solid var(--border);
+  position: relative;
+  z-index: 10;
+}
+
+.header::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  opacity: 0.5;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.logo-icon {
+  width: 28px;
+  height: 28px;
+  border: 2px solid var(--accent);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  color: var(--accent);
+  animation: pulse-border 3s ease-in-out infinite;
+}
+
+@keyframes pulse-border {
+  0%, 100% { border-color: var(--accent); box-shadow: 0 0 5px rgba(0,212,255,0.3); }
+  50% { border-color: var(--accent2); box-shadow: 0 0 12px rgba(123,97,255,0.4); }
+}
+
+.logo h1 {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: var(--text-bright);
+  text-transform: uppercase;
+}
+
+.logo h1 span { color: var(--accent); }
+
+.header-stats {
+  display: flex;
+  gap: 24px;
+  align-items: center;
+}
+
+.stat-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.stat-item .value {
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.stat-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--success);
+  animation: blink 2s ease-in-out infinite;
+}
+
+.stat-dot.offline { background: var(--error); animation: none; }
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* ─── Main Grid ─────────────────────────────────────────────── */
+.main {
+  display: grid;
+  grid-template-columns: 260px 1fr 300px;
+  grid-template-rows: 1fr 260px;
+  grid-template-areas:
+    "sessions timeline agents"
+    "sessions files    stats";
+  gap: 1px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+/* ─── Panel Base ────────────────────────────────────────────── */
+.panel {
+  background: var(--bg-panel);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel-alt);
+  flex-shrink: 0;
+}
+
+.panel-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.panel-title::before {
+  content: '▸';
+  color: var(--accent);
+}
+
+.panel-badge {
+  font-size: 9px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: rgba(0,212,255,0.1);
+  color: var(--accent);
+  border: 1px solid rgba(0,212,255,0.2);
+}
+
+.panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.panel-body::-webkit-scrollbar { width: 4px; }
+.panel-body::-webkit-scrollbar-track { background: transparent; }
+.panel-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+/* ─── P1: Sessions Panel (Left) ────────────────────────────── */
+.sessions-panel { grid-area: sessions; }
+
+.session-card {
+  padding: 10px 12px;
+  margin-bottom: 4px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.session-card:hover {
+  background: rgba(0,212,255,0.05);
+  border-color: var(--border);
+}
+
+.session-card.active {
+  background: rgba(0,212,255,0.08);
+  border-color: var(--accent);
+  box-shadow: 0 0 10px rgba(0,212,255,0.1);
+}
+
+.session-card.live {
+  border-left: 3px solid var(--success);
+}
+
+.session-project {
+  font-size: 11px;
+  color: var(--accent);
+  font-weight: 600;
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session-id {
+  font-size: 9px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+}
+
+.session-meta {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 9px;
+  color: var(--text-dim);
+}
+
+.session-meta .tag {
+  padding: 1px 5px;
+  border-radius: 2px;
+  background: rgba(255,255,255,0.05);
+}
+
+/* ─── P2: Timeline Panel (Center Top) ──────────────────────── */
+.timeline-panel { grid-area: timeline; }
+
+.timeline-event {
+  display: flex;
+  gap: 10px;
+  padding: 6px 10px;
+  margin-bottom: 2px;
+  border-radius: 3px;
+  transition: background 0.1s;
+  animation: fadeSlideIn 0.3s ease-out;
+}
+
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.timeline-event:hover {
+  background: rgba(255,255,255,0.03);
+}
+
+.timeline-time {
+  flex-shrink: 0;
+  width: 70px;
+  font-size: 10px;
+  color: var(--text-dim);
+  padding-top: 2px;
+}
+
+.timeline-indicator {
+  flex-shrink: 0;
+  width: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 4px;
+}
+
+.timeline-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+
+.timeline-dot.tool { background: var(--tool-bash); }
+.timeline-dot.user { background: var(--accent2); }
+.timeline-dot.assistant { background: var(--accent); }
+.timeline-dot.agent { background: var(--tool-agent); }
+.timeline-dot.hook { background: var(--warning); }
+.timeline-dot.system { background: var(--text-dim); }
+.timeline-dot.queue { background: var(--tool-skill); }
+
+.timeline-line {
+  width: 1px;
+  flex: 1;
+  background: var(--border);
+  margin-top: 4px;
+}
+
+.timeline-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.timeline-label {
+  font-size: 11px;
+  font-weight: 600;
+  margin-bottom: 3px;
+}
+
+.timeline-label.user { color: var(--accent2); }
+.timeline-label.assistant { color: var(--accent); }
+.timeline-label.tool { color: var(--tool-bash); }
+.timeline-label.agent { color: var(--tool-agent); }
+.timeline-label.hook { color: var(--warning); }
+.timeline-label.system { color: var(--text-dim); }
+.timeline-label.queue { color: var(--tool-skill); }
+
+.timeline-detail {
+  font-size: 11px;
+  color: var(--text);
+  word-break: break-word;
+}
+
+.timeline-detail code {
+  background: rgba(0,212,255,0.1);
+  padding: 1px 5px;
+  border-radius: 2px;
+  font-size: 10px;
+  color: var(--accent);
+}
+
+.timeline-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.tool-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  border: 1px solid;
+}
+
+.tool-tag.Read { background: rgba(0,212,255,0.1); border-color: rgba(0,212,255,0.3); color: var(--tool-read); }
+.tool-tag.Write { background: rgba(255,107,157,0.1); border-color: rgba(255,107,157,0.3); color: var(--tool-write); }
+.tool-tag.Edit { background: rgba(255,170,0,0.1); border-color: rgba(255,170,0,0.3); color: var(--tool-edit); }
+.tool-tag.Bash { background: rgba(0,255,136,0.1); border-color: rgba(0,255,136,0.3); color: var(--tool-bash); }
+.tool-tag.Grep { background: rgba(123,97,255,0.1); border-color: rgba(123,97,255,0.3); color: var(--tool-grep); }
+.tool-tag.Glob { background: rgba(167,139,250,0.1); border-color: rgba(167,139,250,0.3); color: var(--tool-glob); }
+.tool-tag.Agent { background: rgba(249,115,22,0.1); border-color: rgba(249,115,22,0.3); color: var(--tool-agent); }
+.tool-tag.Skill { background: rgba(236,72,153,0.1); border-color: rgba(236,72,153,0.3); color: var(--tool-skill); }
+.tool-tag.default { background: rgba(100,116,139,0.1); border-color: rgba(100,116,139,0.3); color: var(--tool-other); }
+
+.tool-detail {
+  font-size: 9px;
+  color: var(--text-dim);
+  margin-top: 2px;
+  font-style: italic;
+}
+
+/* ─── P3: Agent Status Panel (Right) ───────────────────────── */
+.agents-panel { grid-area: agents; }
+
+.agent-card {
+  padding: 10px 12px;
+  margin-bottom: 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg-panel-alt);
+}
+
+.agent-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.agent-name {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--tool-agent);
+}
+
+.agent-status {
+  font-size: 9px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 600;
+}
+
+.agent-status.running {
+  background: rgba(0,255,136,0.15);
+  color: var(--success);
+  border: 1px solid rgba(0,255,136,0.3);
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 4px rgba(0,255,136,0.2); }
+  50% { box-shadow: 0 0 12px rgba(0,255,136,0.4); }
+}
+
+.agent-status.done {
+  background: rgba(100,116,139,0.15);
+  color: var(--text-dim);
+  border: 1px solid rgba(100,116,139,0.3);
+}
+
+.agent-task {
+  font-size: 10px;
+  color: var(--text);
+  margin-bottom: 6px;
+  padding: 6px 8px;
+  background: rgba(0,0,0,0.3);
+  border-radius: 3px;
+  border-left: 2px solid var(--tool-agent);
+}
+
+.agent-tools-used {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+.agent-tool-mini {
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 2px;
+  background: rgba(255,255,255,0.05);
+  color: var(--text-dim);
+}
+
+/* ─── P4: File Activity Panel (Center Bottom) ──────────────── */
+.files-panel { grid-area: files; }
+
+.file-tree {
+  font-size: 11px;
+}
+
+.file-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  border-radius: 3px;
+  margin-bottom: 1px;
+  animation: fadeSlideIn 0.3s ease-out;
+}
+
+.file-entry:hover {
+  background: rgba(255,255,255,0.03);
+}
+
+.file-icon {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+}
+
+.file-icon.read { color: var(--tool-read); }
+.file-icon.write { color: var(--tool-write); }
+.file-icon.edit { color: var(--tool-edit); }
+
+.file-path {
+  flex: 1;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11px;
+}
+
+.file-path .dir { color: var(--text-dim); }
+.file-path .name { color: var(--text-bright); font-weight: 600; }
+
+.file-action {
+  flex-shrink: 0;
+  font-size: 9px;
+  padding: 1px 6px;
+  border-radius: 2px;
+  font-weight: 600;
+}
+
+.file-action.read { background: rgba(0,212,255,0.1); color: var(--tool-read); }
+.file-action.write { background: rgba(255,107,157,0.1); color: var(--tool-write); }
+.file-action.edit { background: rgba(255,170,0,0.1); color: var(--tool-edit); }
+
+.file-time {
+  flex-shrink: 0;
+  font-size: 9px;
+  color: var(--text-dim);
+  width: 60px;
+  text-align: right;
+}
+
+/* ─── P5: Stats Panel (Bottom Right) ───────────────────────── */
+.stats-panel { grid-area: stats; }
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 4px;
+}
+
+.stat-card {
+  padding: 10px;
+  border-radius: 4px;
+  background: var(--bg-panel-alt);
+  border: 1px solid var(--border);
+  text-align: center;
+}
+
+.stat-card .label {
+  font-size: 9px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 4px;
+}
+
+.stat-card .number {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.stat-card .number.purple { color: var(--accent2); }
+.stat-card .number.green { color: var(--success); }
+.stat-card .number.orange { color: var(--warning); }
+
+.tool-chart {
+  padding: 8px 12px;
+}
+
+.tool-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+  font-size: 10px;
+}
+
+.tool-bar-name {
+  width: 50px;
+  text-align: right;
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+.tool-bar-track {
+  flex: 1;
+  height: 6px;
+  background: rgba(255,255,255,0.05);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.tool-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.5s ease;
+}
+
+.tool-bar-count {
+  width: 30px;
+  font-size: 9px;
+  color: var(--text-dim);
+}
+
+/* ─── Tab Bar ───────────────────────────────────────────────── */
+.tab-bar {
+  display: flex;
+  gap: 2px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel-alt);
+  flex-shrink: 0;
+}
+
+.tab {
+  padding: 4px 12px;
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  cursor: pointer;
+  border-radius: 3px;
+  transition: all 0.15s;
+  border: 1px solid transparent;
+}
+
+.tab:hover { color: var(--text); background: rgba(255,255,255,0.03); }
+.tab.active { color: var(--accent); background: rgba(0,212,255,0.08); border-color: rgba(0,212,255,0.2); }
+
+/* ─── Empty State ───────────────────────────────────────────── */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-dim);
+  text-align: center;
+  gap: 8px;
+}
+
+.empty-state .icon { font-size: 32px; opacity: 0.3; }
+.empty-state .text { font-size: 11px; }
+
+/* ─── Scanline effect ───────────────────────────────────────── */
+.scanline {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 999;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,0,0,0.03) 2px,
+    rgba(0,0,0,0.03) 4px
+  );
+}
+
+/* ─── Connection status bar ─────────────────────────────────── */
+.connection-bar {
+  position: fixed;
+  top: 48px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  z-index: 100;
+  transition: opacity 0.3s;
+}
+
+.connection-bar.connected {
+  background: linear-gradient(90deg, transparent, var(--success), transparent);
+  opacity: 0.5;
+}
+
+.connection-bar.disconnected {
+  background: linear-gradient(90deg, transparent, var(--error), transparent);
+  opacity: 1;
+  animation: pulse-error 1s ease-in-out infinite;
+}
+
+@keyframes pulse-error {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* ─── History mode ──────────────────────────────────────────── */
+.mode-toggle {
+  display: flex;
+  background: rgba(255,255,255,0.05);
+  border-radius: 4px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.mode-btn {
+  padding: 4px 12px;
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  cursor: pointer;
+  border: none;
+  background: none;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  transition: all 0.15s;
+}
+
+.mode-btn:hover { color: var(--text); }
+.mode-btn.active { color: var(--accent); background: rgba(0,212,255,0.1); }
+
+/* ─── Responsive ────────────────────────────────────────────── */
+@media (max-width: 1200px) {
+  .main {
+    grid-template-columns: 220px 1fr 240px;
+  }
+}
+</style>
+</head>
+<body>
+
+<div class="scanline"></div>
+<div class="connection-bar" id="connectionBar"></div>
+
+<div class="app">
+  <!-- Header -->
+  <header class="header">
+    <div class="logo">
+      <div class="logo-icon">C</div>
+      <h1>CLAUDE <span>MONITOR</span></h1>
+    </div>
+    <div class="header-stats">
+      <div class="stat-item">
+        <div class="stat-dot" id="statusDot"></div>
+        <span id="statusText">CONNECTING</span>
+      </div>
+      <div class="stat-item">
+        EVENTS <span class="value" id="totalEvents">0</span>
+      </div>
+      <div class="stat-item">
+        UPTIME <span class="value" id="uptime">--:--</span>
+      </div>
+      <div class="mode-toggle">
+        <button class="mode-btn active" id="modeLive" onclick="setMode('live')">LIVE</button>
+        <button class="mode-btn" id="modeHistory" onclick="setMode('history')">HISTORY</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Grid -->
+  <div class="main">
+
+    <!-- P1: Sessions -->
+    <div class="panel sessions-panel">
+      <div class="panel-header">
+        <span class="panel-title">Sessions</span>
+        <span class="panel-badge" id="sessionCount">0</span>
+      </div>
+      <div class="panel-body" id="sessionsList">
+        <div class="empty-state">
+          <div class="icon">◎</div>
+          <div class="text">Waiting for sessions…</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- P2: Timeline -->
+    <div class="panel timeline-panel">
+      <div class="panel-header">
+        <span class="panel-title">Event Timeline</span>
+        <span class="panel-badge" id="timelineCount">0</span>
+      </div>
+      <div class="tab-bar">
+        <div class="tab active" data-filter="all" onclick="setTimelineFilter('all',this)">ALL</div>
+        <div class="tab" data-filter="tool" onclick="setTimelineFilter('tool',this)">TOOLS</div>
+        <div class="tab" data-filter="user" onclick="setTimelineFilter('user',this)">USER</div>
+        <div class="tab" data-filter="assistant" onclick="setTimelineFilter('assistant',this)">ASSISTANT</div>
+        <div class="tab" data-filter="agent" onclick="setTimelineFilter('agent',this)">AGENTS</div>
+      </div>
+      <div class="panel-body" id="timelineList">
+        <div class="empty-state">
+          <div class="icon">⟐</div>
+          <div class="text">Awaiting events…<br>Start a Claude Code session to see activity</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- P3: Agent Status -->
+    <div class="panel agents-panel">
+      <div class="panel-header">
+        <span class="panel-title">Agent Status</span>
+        <span class="panel-badge" id="agentCount">0</span>
+      </div>
+      <div class="panel-body" id="agentsList">
+        <div class="empty-state">
+          <div class="icon">◈</div>
+          <div class="text">No active agents</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- P4: File Activity -->
+    <div class="panel files-panel">
+      <div class="panel-header">
+        <span class="panel-title">File Activity</span>
+        <span class="panel-badge" id="fileCount">0</span>
+      </div>
+      <div class="panel-body" id="filesList">
+        <div class="empty-state">
+          <div class="icon">⊞</div>
+          <div class="text">No file operations yet</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- P5: Stats -->
+    <div class="panel stats-panel">
+      <div class="panel-header">
+        <span class="panel-title">Statistics</span>
+      </div>
+      <div class="panel-body">
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="label">Tool Calls</div>
+            <div class="number" id="statToolCalls">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="label">Agents</div>
+            <div class="number purple" id="statAgents">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="label">Files</div>
+            <div class="number green" id="statFiles">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="label">Messages</div>
+            <div class="number orange" id="statMessages">0</div>
+          </div>
+        </div>
+        <div class="tool-chart" id="toolChart"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ─── State ────────────────────────────────────────────────────
+const state = {
+  mode: 'live',        // 'live' or 'history'
+  ws: null,
+  connected: false,
+  events: [],
+  agents: new Map(),   // agentId -> { task, status, tools, lastActivity }
+  files: [],           // { path, action, timestamp }
+  sessions: new Map(),
+  toolCounts: {},
+  totalEvents: 0,
+  totalMessages: 0,
+  timelineFilter: 'all',
+  startTime: Date.now(),
+  selectedSession: null,
+  autoScroll: true,
+};
+
+// ─── WebSocket Connection ─────────────────────────────────────
+function connect() {
+  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  state.ws = new WebSocket(`${protocol}//${location.host}`);
+
+  state.ws.onopen = () => {
+    state.connected = true;
+    updateConnectionStatus();
+    console.log('[WS] Connected');
+  };
+
+  state.ws.onmessage = (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      handleMessage(data);
+    } catch (err) {
+      console.error('[WS] Parse error:', err);
+    }
+  };
+
+  state.ws.onclose = () => {
+    state.connected = false;
+    updateConnectionStatus();
+    console.log('[WS] Disconnected, reconnecting in 3s…');
+    setTimeout(connect, 3000);
+  };
+
+  state.ws.onerror = () => {
+    state.ws.close();
+  };
+}
+
+function handleMessage(data) {
+  if (data.type === 'snapshot') {
+    // Initial state from server
+    return;
+  }
+
+  if (data.type === 'event') {
+    const event = data.event;
+    processEvent(event);
+  }
+}
+
+// ─── Event Processing ─────────────────────────────────────────
+function processEvent(event) {
+  state.totalEvents++;
+  state.events.push(event);
+
+  // Keep buffer manageable
+  if (state.events.length > 2000) {
+    state.events = state.events.slice(-1500);
+  }
+
+  // Track session
+  if (event.sessionId) {
+    if (!state.sessions.has(event.sessionId)) {
+      state.sessions.set(event.sessionId, {
+        id: event.sessionId,
+        project: event.project,
+        startTime: event.timestamp,
+        lastActivity: event.timestamp,
+        events: 0,
+      });
+    }
+    const session = state.sessions.get(event.sessionId);
+    session.lastActivity = event.timestamp;
+    session.events++;
+  }
+
+  // Track tools
+  if (event.tools && event.tools.length > 0) {
+    for (const tool of event.tools) {
+      state.toolCounts[tool.name] = (state.toolCounts[tool.name] || 0) + 1;
+
+      // Track file operations
+      if (['Read', 'Write', 'Edit'].includes(tool.name) && tool.input?.file) {
+        state.files.unshift({
+          path: tool.input.file,
+          action: tool.name.toLowerCase(),
+          timestamp: event.timestamp,
+        });
+        if (state.files.length > 200) state.files = state.files.slice(0, 150);
+      }
+    }
+  }
+
+  // Track agents
+  if (event.category === 'agent_task' || event.category === 'agent_response' || event.category === 'agent_progress') {
+    const agentId = event.agentId;
+    if (agentId) {
+      if (!state.agents.has(agentId)) {
+        state.agents.set(agentId, {
+          id: agentId,
+          task: '',
+          status: 'running',
+          tools: {},
+          lastActivity: event.timestamp,
+          startTime: event.timestamp,
+        });
+      }
+      const agent = state.agents.get(agentId);
+      agent.lastActivity = event.timestamp;
+
+      if (event.category === 'agent_task') {
+        const content = typeof event.content === 'string' ? event.content :
+          Array.isArray(event.content) ? event.content.map(c => c.text || c.name || '').join(' ') : '';
+        agent.task = content.slice(0, 200);
+      }
+
+      if (event.tools) {
+        for (const t of event.tools) {
+          agent.tools[t.name] = (agent.tools[t.name] || 0) + 1;
+        }
+      }
+    }
+  }
+
+  // Track messages
+  if (event.category === 'user_message' || event.category === 'assistant_message') {
+    state.totalMessages++;
+  }
+
+  // Assistant tool_use with Agent -> also track
+  if (event.category === 'assistant_message' && event.tools) {
+    for (const tool of event.tools) {
+      if (tool.name === 'Agent' && tool.input?.description) {
+        // Agent launched
+      }
+    }
+  }
+
+  renderAll();
+}
+
+// ─── Rendering ────────────────────────────────────────────────
+function renderAll() {
+  renderHeader();
+  renderSessions();
+  renderTimeline();
+  renderAgents();
+  renderFiles();
+  renderStats();
+}
+
+function renderHeader() {
+  document.getElementById('totalEvents').textContent = state.totalEvents;
+  const elapsed = Math.floor((Date.now() - state.startTime) / 1000);
+  const min = Math.floor(elapsed / 60).toString().padStart(2, '0');
+  const sec = (elapsed % 60).toString().padStart(2, '0');
+  document.getElementById('uptime').textContent = `${min}:${sec}`;
+}
+
+function updateConnectionStatus() {
+  const dot = document.getElementById('statusDot');
+  const text = document.getElementById('statusText');
+  const bar = document.getElementById('connectionBar');
+
+  if (state.connected) {
+    dot.className = 'stat-dot';
+    text.textContent = 'CONNECTED';
+    bar.className = 'connection-bar connected';
+  } else {
+    dot.className = 'stat-dot offline';
+    text.textContent = 'DISCONNECTED';
+    bar.className = 'connection-bar disconnected';
+  }
+}
+
+function renderSessions() {
+  const el = document.getElementById('sessionsList');
+  const sessions = Array.from(state.sessions.values())
+    .sort((a, b) => (b.lastActivity || '').localeCompare(a.lastActivity || ''));
+
+  document.getElementById('sessionCount').textContent = sessions.length;
+
+  if (sessions.length === 0) return;
+
+  el.innerHTML = sessions.map(s => {
+    const isActive = state.selectedSession === s.id;
+    const isRecent = s.lastActivity && (Date.now() - new Date(s.lastActivity).getTime() < 60000);
+    return `
+      <div class="session-card ${isActive ? 'active' : ''} ${isRecent ? 'live' : ''}"
+           onclick="selectSession('${s.id}')">
+        <div class="session-project">${escHtml(s.project || 'Unknown')}</div>
+        <div class="session-id">${s.id.slice(0, 8)}…</div>
+        <div class="session-meta">
+          <span class="tag">${s.events} events</span>
+          <span class="tag">${formatTime(s.lastActivity)}</span>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderTimeline() {
+  const el = document.getElementById('timelineList');
+  const filter = state.timelineFilter;
+
+  let filtered = state.events;
+  if (filter !== 'all') {
+    filtered = state.events.filter(e => {
+      switch (filter) {
+        case 'tool': return e.tools && e.tools.length > 0;
+        case 'user': return e.category === 'user_message';
+        case 'assistant': return e.category === 'assistant_message';
+        case 'agent': return e.category?.startsWith('agent_');
+        default: return true;
+      }
+    });
+  }
+
+  // Show last N events
+  const visible = filtered.slice(-100);
+  document.getElementById('timelineCount').textContent = filtered.length;
+
+  if (visible.length === 0) return;
+
+  el.innerHTML = visible.map(e => renderTimelineEvent(e)).join('');
+
+  // Auto-scroll to bottom
+  if (state.autoScroll) {
+    el.scrollTop = el.scrollHeight;
+  }
+}
+
+function renderTimelineEvent(e) {
+  let dotClass = 'system';
+  let labelClass = 'system';
+  let label = e.category;
+  let detail = '';
+
+  switch (e.category) {
+    case 'user_message':
+      dotClass = 'user';
+      labelClass = 'user';
+      label = 'USER';
+      const userContent = typeof e.content === 'string' ? e.content :
+        Array.isArray(e.content) ? e.content.map(c => c.text || '').join(' ') : '';
+      detail = `<div class="timeline-detail">${escHtml(userContent.slice(0, 200))}</div>`;
+      break;
+
+    case 'assistant_message':
+      dotClass = 'assistant';
+      labelClass = 'assistant';
+      label = `ASSISTANT${e.model ? ' <code>' + shortModel(e.model) + '</code>' : ''}`;
+      if (e.text) {
+        detail = `<div class="timeline-detail">${escHtml(e.text.slice(0, 200))}</div>`;
+      }
+      if (e.tools && e.tools.length > 0) {
+        detail += `<div class="timeline-tools">${e.tools.map(t => renderToolTag(t)).join('')}</div>`;
+      }
+      if (e.usage) {
+        detail += `<div class="tool-detail">tokens: in=${e.usage.input || 0} out=${e.usage.output || 0} cache=${e.usage.cacheRead || 0}</div>`;
+      }
+      break;
+
+    case 'agent_task':
+      dotClass = 'agent';
+      labelClass = 'agent';
+      label = `AGENT TASK${e.agentId ? ' <code>' + e.agentId.slice(0, 12) + '</code>' : ''}`;
+      const agentContent = typeof e.content === 'string' ? e.content : '';
+      detail = `<div class="timeline-detail">${escHtml(agentContent.slice(0, 200))}</div>`;
+      break;
+
+    case 'agent_response':
+      dotClass = 'agent';
+      labelClass = 'agent';
+      label = `AGENT RESP${e.agentId ? ' <code>' + e.agentId.slice(0, 12) + '</code>' : ''}`;
+      if (e.text) {
+        detail = `<div class="timeline-detail">${escHtml(e.text.slice(0, 150))}</div>`;
+      }
+      if (e.tools && e.tools.length > 0) {
+        detail += `<div class="timeline-tools">${e.tools.map(t => renderToolTag(t)).join('')}</div>`;
+      }
+      break;
+
+    case 'agent_progress':
+      dotClass = 'agent';
+      labelClass = 'agent';
+      label = 'AGENT PROGRESS';
+      break;
+
+    case 'hook':
+      dotClass = 'hook';
+      labelClass = 'hook';
+      label = `HOOK <code>${escHtml(e.hookEvent || '')}</code>`;
+      detail = `<div class="timeline-detail">${escHtml(e.hookName || '')}</div>`;
+      break;
+
+    case 'queue':
+      dotClass = 'queue';
+      labelClass = 'queue';
+      label = `QUEUE ${e.operation?.toUpperCase() || ''}`;
+      if (e.content) {
+        detail = `<div class="timeline-detail">${escHtml(String(e.content).slice(0, 150))}</div>`;
+      }
+      break;
+
+    case 'system':
+      dotClass = 'system';
+      labelClass = 'system';
+      label = `SYSTEM <code>${escHtml(e.subtype || '')}</code>`;
+      break;
+
+    default:
+      label = e.category?.toUpperCase() || 'UNKNOWN';
+  }
+
+  return `
+    <div class="timeline-event">
+      <div class="timeline-time">${formatTime(e.timestamp)}</div>
+      <div class="timeline-indicator">
+        <div class="timeline-dot ${dotClass}"></div>
+        <div class="timeline-line"></div>
+      </div>
+      <div class="timeline-content">
+        <div class="timeline-label ${labelClass}">${label}</div>
+        ${detail}
+      </div>
+    </div>
+  `;
+}
+
+function renderToolTag(tool) {
+  const cls = ['Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob', 'Agent', 'Skill'].includes(tool.name)
+    ? tool.name : 'default';
+
+  let detail = '';
+  if (tool.input) {
+    if (tool.input.file) detail = shortenPath(tool.input.file);
+    else if (tool.input.command) detail = tool.input.command;
+    else if (tool.input.description) detail = tool.input.description;
+    else if (tool.input.pattern) detail = tool.input.pattern;
+    else if (tool.input.skill) detail = tool.input.skill;
+  }
+
+  return `<span class="tool-tag ${cls}" title="${escHtml(detail)}">${tool.name}${detail ? ': ' + escHtml(detail.slice(0, 40)) : ''}</span>`;
+}
+
+function renderAgents() {
+  const el = document.getElementById('agentsList');
+  const agents = Array.from(state.agents.values())
+    .sort((a, b) => (b.lastActivity || '').localeCompare(a.lastActivity || ''));
+
+  document.getElementById('agentCount').textContent = agents.length;
+
+  if (agents.length === 0) return;
+
+  el.innerHTML = agents.map(a => {
+    const isRecent = a.lastActivity && (Date.now() - new Date(a.lastActivity).getTime() < 30000);
+    const statusCls = isRecent ? 'running' : 'done';
+    const statusText = isRecent ? 'RUNNING' : 'IDLE';
+    const toolTags = Object.entries(a.tools)
+      .sort((x, y) => y[1] - x[1])
+      .slice(0, 8)
+      .map(([name, count]) => `<span class="agent-tool-mini">${name} ×${count}</span>`)
+      .join('');
+
+    return `
+      <div class="agent-card">
+        <div class="agent-header">
+          <span class="agent-name">● ${a.id.slice(0, 16)}</span>
+          <span class="agent-status ${statusCls}">${statusText}</span>
+        </div>
+        ${a.task ? `<div class="agent-task">${escHtml(a.task.slice(0, 150))}</div>` : ''}
+        <div class="agent-tools-used">${toolTags}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderFiles() {
+  const el = document.getElementById('filesList');
+  const files = state.files.slice(0, 50);
+  document.getElementById('fileCount').textContent = new Set(state.files.map(f => f.path)).size;
+
+  if (files.length === 0) return;
+
+  el.innerHTML = files.map(f => {
+    const parts = f.path.replace(/\\/g, '/').split('/');
+    const name = parts.pop();
+    const dir = parts.length > 2 ? '…/' + parts.slice(-2).join('/') + '/' : parts.join('/') + '/';
+
+    const iconMap = { read: '◉', write: '◆', edit: '◇' };
+
+    return `
+      <div class="file-entry">
+        <div class="file-icon ${f.action}">${iconMap[f.action] || '○'}</div>
+        <div class="file-path">
+          <span class="dir">${escHtml(dir)}</span><span class="name">${escHtml(name)}</span>
+        </div>
+        <div class="file-action ${f.action}">${f.action.toUpperCase()}</div>
+        <div class="file-time">${formatTime(f.timestamp)}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderStats() {
+  document.getElementById('statToolCalls').textContent =
+    Object.values(state.toolCounts).reduce((a, b) => a + b, 0);
+  document.getElementById('statAgents').textContent = state.agents.size;
+  document.getElementById('statFiles').textContent = new Set(state.files.map(f => f.path)).size;
+  document.getElementById('statMessages').textContent = state.totalMessages;
+
+  // Tool usage chart
+  const chartEl = document.getElementById('toolChart');
+  const sorted = Object.entries(state.toolCounts).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  const max = sorted.length > 0 ? sorted[0][1] : 1;
+
+  const colorMap = {
+    Read: 'var(--tool-read)', Write: 'var(--tool-write)', Edit: 'var(--tool-edit)',
+    Bash: 'var(--tool-bash)', Grep: 'var(--tool-grep)', Glob: 'var(--tool-glob)',
+    Agent: 'var(--tool-agent)', Skill: 'var(--tool-skill)',
+  };
+
+  chartEl.innerHTML = sorted.map(([name, count]) => {
+    const pct = Math.round((count / max) * 100);
+    const color = colorMap[name] || 'var(--tool-other)';
+    return `
+      <div class="tool-bar-row">
+        <span class="tool-bar-name">${name}</span>
+        <div class="tool-bar-track">
+          <div class="tool-bar-fill" style="width:${pct}%;background:${color}"></div>
+        </div>
+        <span class="tool-bar-count">${count}</span>
+      </div>
+    `;
+  }).join('');
+}
+
+// ─── Interactions ─────────────────────────────────────────────
+function selectSession(id) {
+  state.selectedSession = id;
+  renderSessions();
+}
+
+function setTimelineFilter(filter, tabEl) {
+  state.timelineFilter = filter;
+  document.querySelectorAll('.tab-bar .tab').forEach(t => t.classList.remove('active'));
+  if (tabEl) tabEl.classList.add('active');
+  renderTimeline();
+}
+
+function setMode(mode) {
+  state.mode = mode;
+  document.getElementById('modeLive').classList.toggle('active', mode === 'live');
+  document.getElementById('modeHistory').classList.toggle('active', mode === 'history');
+
+  if (mode === 'history') {
+    loadHistory();
+  }
+}
+
+async function loadHistory() {
+  try {
+    const resp = await fetch('/api/sessions');
+    const sessions = await resp.json();
+
+    state.sessions.clear();
+    for (const s of sessions) {
+      state.sessions.set(s.id, {
+        id: s.id,
+        project: s.project,
+        startTime: s.firstTimestamp,
+        lastActivity: s.lastTimestamp,
+        events: s.lineCount,
+        gitBranch: s.gitBranch,
+      });
+    }
+    document.getElementById('sessionCount').textContent = sessions.length;
+    renderSessions();
+  } catch (err) {
+    console.error('Failed to load history:', err);
+  }
+}
+
+async function loadSessionDetail(sessionId) {
+  try {
+    const resp = await fetch(`/api/sessions/${sessionId}`);
+    const data = await resp.json();
+
+    state.events = data.events || [];
+    state.totalEvents = data.eventCount || 0;
+
+    // Rebuild stats from events
+    state.toolCounts = {};
+    state.files = [];
+    state.agents.clear();
+    state.totalMessages = 0;
+
+    for (const event of state.events) {
+      processEventStats(event);
+    }
+
+    renderAll();
+  } catch (err) {
+    console.error('Failed to load session:', err);
+  }
+}
+
+function processEventStats(event) {
+  if (event.tools) {
+    for (const tool of event.tools) {
+      state.toolCounts[tool.name] = (state.toolCounts[tool.name] || 0) + 1;
+      if (['Read', 'Write', 'Edit'].includes(tool.name) && tool.input?.file) {
+        state.files.push({ path: tool.input.file, action: tool.name.toLowerCase(), timestamp: event.timestamp });
+      }
+    }
+  }
+  if (event.agentId && (event.category?.startsWith('agent_'))) {
+    if (!state.agents.has(event.agentId)) {
+      state.agents.set(event.agentId, {
+        id: event.agentId, task: '', status: 'done', tools: {},
+        lastActivity: event.timestamp, startTime: event.timestamp,
+      });
+    }
+    const agent = state.agents.get(event.agentId);
+    agent.lastActivity = event.timestamp;
+    if (event.category === 'agent_task' && typeof event.content === 'string') {
+      agent.task = event.content.slice(0, 200);
+    }
+    if (event.tools) {
+      for (const t of event.tools) {
+        agent.tools[t.name] = (agent.tools[t.name] || 0) + 1;
+      }
+    }
+  }
+  if (event.category === 'user_message' || event.category === 'assistant_message') {
+    state.totalMessages++;
+  }
+}
+
+// ─── Utilities ────────────────────────────────────────────────
+function formatTime(ts) {
+  if (!ts) return '--:--';
+  const d = new Date(ts);
+  return d.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function shortModel(model) {
+  if (!model) return '';
+  return model.replace('claude-', '').replace(/-\d{8}$/, '').slice(0, 15);
+}
+
+function shortenPath(p) {
+  if (!p) return '';
+  const parts = p.replace(/\\/g, '/').split('/');
+  if (parts.length <= 3) return parts.join('/');
+  return '…/' + parts.slice(-3).join('/');
+}
+
+function escHtml(str) {
+  if (!str) return '';
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// ─── Init ─────────────────────────────────────────────────────
+connect();
+
+// Update uptime every second
+setInterval(() => {
+  renderHeader();
+}, 1000);
+
+// Auto-scroll detection
+const timelineEl = document.getElementById('timelineList');
+timelineEl.addEventListener('scroll', () => {
+  const atBottom = timelineEl.scrollHeight - timelineEl.scrollTop - timelineEl.clientHeight < 50;
+  state.autoScroll = atBottom;
+});
+
+// Override selectSession for history mode
+const _selectSession = selectSession;
+selectSession = function(id) {
+  _selectSession(id);
+  if (state.mode === 'history') {
+    loadSessionDetail(id);
+  }
+};
+
+console.log('%c CLAUDE MONITOR v1.0 ', 'background: #0d1220; color: #00d4ff; font-size: 16px; padding: 8px; border: 1px solid #00d4ff;');
+</script>
+</body>
+</html>
